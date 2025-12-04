@@ -182,9 +182,13 @@ def index():
 @app.route('/users/login', methods=['POST'])
 def login_user():
     content = request.get_json()
+    if "username" not in content or "password" not in content:
+        return {'Error' : 'Body is missing a required attribute.'}
+    
     username = content["username"]
     password = content["password"]
-    body = {'grant_type':'password','username':username,
+    body = {'grant_type':'password',
+            'username':username,
             'password':password,
             'client_id':CLIENT_ID,
             'client_secret':CLIENT_SECRET
@@ -193,8 +197,10 @@ def login_user():
     url = 'https://' + DOMAIN + '/oauth/token'
     r = requests.post(url, json=body, headers=headers).json()
 
+    if "id_token" not in r:
+        return {"Error" : "Invalid credentials."}, 401
+
     return {'token': r["id_token"]}, 200
-    #, {'Content-Type':'application/json'}
 
 def validate_permissions(roles, sub):
     # gets user 
