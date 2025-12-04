@@ -31,6 +31,11 @@ JWT_INVALID = {"Error" : "Unauthorized user."}
 # DOMAIN = '493-24-spring.us.auth0.com'
 # Note: don't include the protocol in the value of the variable DOMAIN
 
+ERROR_400 = {"Error": "The request body is invalid"}
+ERROR_401 = {"Error": "Unauthorized"}
+ERROR_403 = {"Error": "You don't have permission on this resource"}
+ERROR_404 = {"Error": "Not found"}
+
 ALGORITHMS = ["RS256"]
 
 oauth = OAuth(app)
@@ -223,7 +228,7 @@ def get_users():
     
     # check permissions
     if validate_permissions(["admin"], payload["sub"]) == False:
-        return {"Error" : "The JWT is valid but doesn’t belong to an admin."}, 403
+        return {"Error" : "The JWT is valid but doesn't belong to an admin."}, 403
     
     # now role is validated, so we can get all users.
 
@@ -233,6 +238,37 @@ def get_users():
         u['id'] = u.key.id
     
     return users
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    payload = verify_jwt(request)
+
+    if not payload:
+        return ERROR_401, 401
+    
+    query = client.query(kind="users")
+    query.add_filter('sub', '=', payload["sub"])
+    requestor = list(query.fetch())
+
+    # check permissions
+    if validate_permissions(["admin"], payload["sub"]) == False and user_id != requestor.key.id:
+        return ERROR_403, 403
+    
+    key = client.key('users', user_id)
+    # query = client.query(kind="users")
+    # query.add_filter('key', '=', user_id)
+    user = client.get(key)
+
+    if not user:
+        return ERROR_403, 403
+    
+    return user
+
+
+    
+
+    
+
 
     
 # #  Create a business
