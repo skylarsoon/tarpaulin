@@ -446,6 +446,8 @@ def get_course(course_id):
         return ERROR_404, 404
     course['id'] = course_id
     course['self'] = 'https://' + request.host + '/' + COURSES + '/' + str(course_id)
+    if 'enrollment' in course:
+        del course['enrollment']
     return course
 
 @app.route('/courses/<int:course_id>', methods=['PATCH'])
@@ -475,8 +477,110 @@ def update_course(course_id):
     client.put(course)
     course['id'] = course.key.id
     course['self'] = 'https://' + request.host + '/' + COURSES + '/' + str(course_id)
+    if 'enrollment' in course:
+        del course['enrollment']
     
     return course
+
+
+@app.route('/courses/<int:course_id>', methods=['DELETE'])
+def delete_course(course_id):
+    payload = verify_jwt(request)
+
+    if not payload:
+        return JWT_INVALID, 401
+    
+    #if not an admin
+    if validate_permissions(["admin"], payload["sub"]) == False:
+        return ERROR_403, 403
+
+    course_key = client.key(COURSES, course_id)
+
+    course = client.get(course_key)
+
+    if course is None:
+        return ERROR_403 , 403
+    
+    client.delete(course_key)
+    return ('', 204)
+
+@app.route('/courses/<int:course_id>/students', methods=['PATCH'])
+def update_enrollment(course_id):
+    payload = verify_jwt(request)
+
+    if not payload:
+        return JWT_INVALID, 401
+    
+    #if not an admin or instructor
+    if validate_permissions(["admin", "instructor"], payload["sub"]) == False:
+        return ERROR_403, 403
+    
+    content = request.json
+    course_key = client.key(COURSES, course_id)
+    course = client.get(course_key)
+    student_query = client.query(kind='users')
+    student_query.add_filter('role', '=', 'student')
+    students_list = list(student_query.fetch())
+    student_ids = []
+    # get student ids to check if the removal or insertion is for a student
+    for s in students_list:
+        student_ids.append(s.key.id)
+
+    print(student_ids)
+
+    if 'enrollment' not in course:
+        course['enrollment'] = []
+
+    for s in content["add"]:
+        if s in content["remove"] or s not in student_ids:
+            return {"Error": "Enrollment data is invalid"}, 409
+        if s in course['enrollment']:
+            continue
+        course['enrollment'].append(s)
+
+    for s in content["remove"]:
+        if s not in student_ids:
+            return {"Error": "Enrollment data is invalid"}, 409
+        if s not in course["enrollment"]:
+            continue
+        print("removing....", s)
+        course['enrollment'].remove(s)
+        
+    client.put(course)
+    
+    return ('', 200)
+            
+
+@app.route('/course/<int:course_id>/students', methods=['GET'])
+def get_enrolled_students(course_id):
+    payload = verify_jwt(request)
+
+    if not payload:
+        return JWT_INVALID, 401
+    
+    # get requestor
+    query = client.query(kind="users")
+    query.add_filter('sub', '=', payload["sub"])
+    requestor = list(query.fetch())[0]
+
+    #if not an admin or instructor
+    if validate_permissions(["admin", "instructor"], payload["sub"]) == False:
+        return ERROR_403, 403
+    
+    course_key = client.key(COURSES, course_id)
+    course = client.get(course_key)
+
+    if requestor['role'] == 'instructor':
+        if course['instructor'] != requestor.key.id:
+            return ERROR_403, 403
+    
+    if 'enrollment' in course:
+        return course['enrollment']
+    
+    return []
+    
+
+    
 
 
 
