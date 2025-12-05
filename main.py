@@ -19,7 +19,7 @@ app.secret_key = 'SECRET_KEY'
 
 client = datastore.Client()
 
-BUSINESSES = 'businesses'
+COURSES = "courses"
 
 # Update the values of the following 3 variables
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -379,7 +379,110 @@ def delete_avatar(user_id):
     # Delete the file from Cloud Storage
     blob.delete()
     return '',204
+
+@app.route('/courses', methods=['POST'])
+def add_course():
+    payload = verify_jwt(request)
+    if not payload:
+        return ERROR_401, 401
+
+    #if not an admin
+    if validate_permissions(["admin"], payload["sub"]) == False:
+        return ERROR_403, 403
     
+    #if missing an attribute
+    data = request.json
+    if 'subject' not in data or 'number' not in data or 'title' not in data or 'term' not in data or 'instructor_id' not in data:
+        return ERROR_400, 400
+    
+    # get user
+    key = client.key('users', data['instructor_id'])
+    user = client.get(key)
+
+    if not user or user['role'] != "instructor":
+        return ERROR_400, 400
+    
+    new_key = client.key(COURSES)
+    
+    new_course = datastore.Entity(key=new_key)
+    new_course.update({
+        'subject': data['subject'],
+        'number': data['number'],
+        'title': data['title'],
+        'term': data['term'],
+        'instructor_id': data['instructor_id']
+    })
+
+    client.put(new_course)
+    new_course['id'] = new_course.key.id
+
+    return new_course, 201
+
+@app.route('/courses', methods=['GET'])
+def get_all_courses():
+    offset = request.args.get('offset', 0, type=int) # parameter name, default value
+    limit = request.args.get('limit', 3, type=int) 
+
+    query = client.query(kind=COURSES)
+    query.order = ['subject']
+    l_iterator = query.fetch(limit=limit, offset=offset)
+    pages = l_iterator.pages
+    results = list(next(pages))
+
+    for r in results:
+        r['id'] = r.key.id
+        r['self'] = 'https://' + request.host + '/' + COURSES + '/' + str(r.key.id)
+
+
+    return { "courses": results,  "next": 'https://' + request.host + '/' + COURSES + '?' + "offset=" + str(offset + limit) + "&limit=" + str(limit)}
+
+    
+@app.route('/courses/<int:course_id>', methods=['GET'])
+def get_course(course_id):
+    # get user
+    key = client.key('courses', course_id)
+    course = client.get(key)
+    if not course:
+        return ERROR_404, 404
+    course['id'] = course_id
+    course['self'] = 'https://' + request.host + '/' + COURSES + '/' + str(course_id)
+    return course
+
+@app.route('/courses/<int:course_id>', methods=['PATCH'])
+def update_course(course_id):
+    payload = verify_jwt(request)
+    if not payload:
+        return ERROR_401, 401
+
+    #if not an admin
+    if validate_permissions(["admin"], payload["sub"]) == False:
+        return ERROR_403, 403
+
+    key = client.key('courses', course_id)
+    course = client.get(key)
+
+    # validate instructor_id
+    if 'instructor_id' in request.json:
+        instructor_key = client.key('users', request.json['instructor_id'])
+        instructor = client.get(instructor_key)
+        if not instructor:
+            return ERROR_400, 400
+
+    # make updates
+    for mod in request.json:
+        course[mod] = request.json[mod]
+    
+    client.put(course)
+    course['id'] = course.key.id
+    course['self'] = 'https://' + request.host + '/' + COURSES + '/' + str(course_id)
+    
+    return course
+
+
+
+
+    
+
 # #  Create a business
 # @app.route('/' + BUSINESSES, methods=['POST'])
 # def add_business():
