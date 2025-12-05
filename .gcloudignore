@@ -17,3 +17,6 @@
 __pycache__/
 # Ignored by the build system
 /setup.cfg
+
+assignment6.postman_collection.json
+assignment6.postman_environment.json

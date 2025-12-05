@@ -182,7 +182,7 @@ def verify_jwt_usable(request):
 
 @app.route('/')
 def index():
-    return "Please navigate to /businesses to use this API"\
+    return "Please navigate to /users/login to use this API"\
     
     # Generate a JWT from the Auth0 domain and return it
 # Request: JSON body with 2 properties with "username" and "password"
@@ -192,7 +192,7 @@ def index():
 def login_user():
     content = request.get_json()
     if "username" not in content or "password" not in content:
-        return {'Error' : 'Body is missing a required attribute.'}
+        return ERROR_400, 400
     
     username = content["username"]
     password = content["password"]
@@ -207,7 +207,7 @@ def login_user():
     r = requests.post(url, json=body, headers=headers).json()
 
     if "id_token" not in r:
-        return {"Error" : "Invalid credentials."}, 401
+        return ERROR_401, 401
 
     return {'token': r["id_token"]}, 200
 
@@ -225,14 +225,14 @@ def validate_permissions(roles, sub):
 
 @app.route('/users', methods=['GET'])
 def get_users():
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
 
     if not payload:
-        return JWT_INVALID, 401
+        return ERROR_401, 401
     
     # check permissions
     if validate_permissions(["admin"], payload["sub"]) == False:
-        return {"Error" : "The JWT is valid but doesn't belong to an admin."}, 403
+        return ERROR_403, 403
     
     # now role is validated, so we can get all users.
 
@@ -245,7 +245,7 @@ def get_users():
 
 @app.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
 
     if not payload:
         return ERROR_401, 401
@@ -276,6 +276,24 @@ def get_user(user_id):
     if file_exists:
         user['avatar_url'] = 'https://' + request.host + '/' + 'users' + '/' + str(user_id) + '/' + 'avatar'
 
+    #get associated courses
+    courses_query = client.query(kind="courses")
+    courses = list(courses_query.fetch())
+
+    if user['role'] == 'student':
+        user['courses'] = []
+        for c in courses:
+            if 'enrollment' in c:
+                if user_id in c['enrollment']:
+                    user['courses'].append(c.key.id)
+    if user['role'] == 'instructor':
+        user['courses'] = []
+        for c in courses:
+            if user_id == c['instructor_id']:
+                user['courses'].append(c.key.id)
+
+
+    user['id'] = user.key.id
     return user
 
 
@@ -287,7 +305,7 @@ def update_avatar(user_id):
     
     file_obj = request.files['file']
     
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
     if not payload:
         return ERROR_401, 401
     
@@ -315,7 +333,7 @@ def update_avatar(user_id):
     
 @app.route('/users/<int:user_id>/avatar', methods=['GET'])
 def get_avatar(user_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
     if not payload:
         return ERROR_401, 401
     
@@ -353,7 +371,7 @@ def get_avatar(user_id):
     
 @app.route('/users/<int:user_id>/avatar', methods=['DELETE'])
 def delete_avatar(user_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
     if not payload:
         return ERROR_401, 401
     
@@ -382,7 +400,7 @@ def delete_avatar(user_id):
 
 @app.route('/courses', methods=['POST'])
 def add_course():
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
     if not payload:
         return ERROR_401, 401
 
@@ -415,6 +433,7 @@ def add_course():
 
     client.put(new_course)
     new_course['id'] = new_course.key.id
+    new_course['self'] = 'https://' + request.host + '/' + COURSES + '/' + str(new_course.key.id)
 
     return new_course, 201
 
@@ -452,7 +471,7 @@ def get_course(course_id):
 
 @app.route('/courses/<int:course_id>', methods=['PATCH'])
 def update_course(course_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
     if not payload:
         return ERROR_401, 401
 
@@ -485,7 +504,7 @@ def update_course(course_id):
 
 @app.route('/courses/<int:course_id>', methods=['DELETE'])
 def delete_course(course_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
 
     if not payload:
         return JWT_INVALID, 401
@@ -506,7 +525,7 @@ def delete_course(course_id):
 
 @app.route('/courses/<int:course_id>/students', methods=['PATCH'])
 def update_enrollment(course_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
 
     if not payload:
         return JWT_INVALID, 401
@@ -553,7 +572,7 @@ def update_enrollment(course_id):
 
 @app.route('/course/<int:course_id>/students', methods=['GET'])
 def get_enrolled_students(course_id):
-    payload = verify_jwt(request)
+    payload = verify_jwt_usable(request)
 
     if not payload:
         return JWT_INVALID, 401
@@ -579,113 +598,6 @@ def get_enrolled_students(course_id):
     
     return []
     
-
-    
-
-
-
-
-    
-
-# #  Create a business
-# @app.route('/' + BUSINESSES, methods=['POST'])
-# def add_business():
-#     if request.method == 'POST':
-#         content = request.get_json()
-#         new_key = client.key(BUSINESSES)
-
-#         if 'inspection_score' not in content or 'name' not in content or 'street_address' not in content or 'city' not in content or 'state' not in content or 'zip_code' not in content:
-#             return ATTRIBUTE_MISSING , 400
-        
-#         payload = verify_jwt(request)
-
-#         new_business = datastore.Entity(key=new_key)
-#         new_business.update({
-#             'name': content['name'],
-#             'owner_id': payload['sub'],
-#             'street_address': content['street_address'],
-#             'city': content['city'],
-#             'state': content['state'],
-#             'zip_code': content['zip_code'],
-#             'inspection_score': content['inspection_score']
-#         })
-
-#         client.put(new_business)
-#         new_business['id'] = new_business.key.id
-#         new_business['self'] = 'https://' + request.host + '/' + BUSINESSES + '/' + str(new_business.key.id)
-#         return (new_business, 201)
-#     else:
-#         return jsonify(error='Method not recogonized')
-    
-# # Get a business
-# @app.route('/' + BUSINESSES + '/<int:id>', methods=['GET'])
-# def get_business(id):
-#     business_key = client.key(BUSINESSES, id)
-#     business = client.get(key=business_key)
-
-#     payload = verify_jwt(request)
-
-#     if business is None:
-#         return ERROR_NOT_FOUND , 404
-#     else:
-#         if payload['sub'] != business['owner_id']:
-#             return JWT_INVALID, 401
-#         business['id'] = business.key.id
-#         business['self'] = 'https://' + request.host + '/' + BUSINESSES + '/' + str(business.key.id)
-#         return business
-
-
-# # List all business
-# @app.route('/' + BUSINESSES, methods=['GET'])
-# def get_businesses():
-#     payload = verify_jwt_usable(request)
-
-#     if not payload:
-#         query = client.query(kind=BUSINESSES)
-#         results = list(query.fetch())
-#         for r in results:
-#             r['id'] = r.key.id
-#             r['self'] = 'https://' + request.host + '/' + BUSINESSES + '/' + str(r.key.id)
-#             del r['inspection_score']
-#     else:
-#         query = client.query(kind=BUSINESSES)
-#         owner_id = payload['sub']
-#         query.add_filter('owner_id', '=', owner_id)
-#         results = list(query.fetch())
-#         for r in results:
-#             r['self'] = 'https://' + request.host + '/' + BUSINESSES + '/' + str(r.key.id)
-#             r['id'] = r.key.id
-
-#     return results
-
-# # Delete a business
-# @app.route('/' + BUSINESSES + '/<int:id>', methods=['DELETE'])
-# def delete_business(id):
-#     payload = verify_jwt(request)
-
-#     # if not payload:
-#     #     return JWT_INVALID, 401
-
-#     business_key = client.key(BUSINESSES, id)
-
-#     business = client.get(business_key)
-
-#     if business is None:
-#         return ERROR_NOT_FOUND , 403
-#     else:
-#         if business['owner_id'] == payload['sub']:
-#             client.delete(business_key)
-#             return ('', 204)
-#         else:
-#             return (ERROR_NOT_FOUND, 403)
-
-
-# # Decode the JWT supplied in the Authorization header
-# @app.route('/decode', methods=['GET'])
-# def decode_jwt():
-
-#     payload = verify_jwt(request)
-#     return payload          
         
 
 if __name__ == '__main__':
