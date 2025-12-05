@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from google.cloud import datastore
 
 import requests
@@ -9,6 +9,8 @@ from jose import jwt
 from authlib.integrations.flask_client import OAuth
 import os
 from dotenv import load_dotenv
+from google.cloud import storage
+import io
 
 load_dotenv()
 
@@ -35,6 +37,8 @@ ERROR_400 = {"Error": "The request body is invalid"}
 ERROR_401 = {"Error": "Unauthorized"}
 ERROR_403 = {"Error": "You don't have permission on this resource"}
 ERROR_404 = {"Error": "Not found"}
+
+AVATAR_BUCKET = "hw6-soonsk-avatars"
 
 ALGORITHMS = ["RS256"]
 
@@ -248,24 +252,107 @@ def get_user(user_id):
     
     query = client.query(kind="users")
     query.add_filter('sub', '=', payload["sub"])
-    requestor = list(query.fetch())
+    requestor = list(query.fetch())[0]
 
     # check permissions
     if validate_permissions(["admin"], payload["sub"]) == False and user_id != requestor.key.id:
         return ERROR_403, 403
     
+    # get user
     key = client.key('users', user_id)
-    # query = client.query(kind="users")
-    # query.add_filter('key', '=', user_id)
     user = client.get(key)
 
     if not user:
         return ERROR_403, 403
     
+    # get avatar
+    file_name = str(user_id) + ".png"
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(AVATAR_BUCKET)
+    # Create a blob with the given file name
+    blob = bucket.blob(file_name)
+    # Create a file object in memory using Python io package
+    file_obj = io.BytesIO()
+    # Download the file from Cloud Storage to the file_obj variable
+    blob.download_to_file(file_obj)
+    # Position the file_obj to its beginning
+    file_obj.seek(0)
+
+    if file_obj:
+        user['avatar_url'] = 'https://' + request.host + '/' + 'users' + '/' + str(user_id) + '/' + 'avatar'
+    
     return user
 
 
+@app.route('/users/<int:user_id>/avatar', methods=['POST'])
+def update_avatar(user_id):
+    #check for file in request
+    if 'file' not in request.files:
+        return ERROR_400, 400
     
+    file_obj = request.files['file']
+    
+    payload = verify_jwt(request)
+    if not payload:
+        return ERROR_401, 401
+    
+    #get requestor
+    query = client.query(kind="users")
+    query.add_filter('sub', '=', payload["sub"])
+    requestor = list(query.fetch())[0]
+
+    # check if the valid user is making the request
+    if user_id != requestor.key.id:
+        return ERROR_403, 403
+    
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(AVATAR_BUCKET)
+
+    file_obj.filename = str(user_id) + ".png"
+    blob = bucket.blob(file_obj.filename)
+    file_obj.seek(0)
+    blob.upload_from_file(file_obj)
+
+    url = 'https://' + request.host + '/' + 'users' + '/' + str(user_id) + '/' + 'avatar'
+    return {"avatar_url" : url}
+    
+
+    
+@app.route('/users/<int:user_id>/avatar', methods=['GET'])
+def get_avatar(user_id):
+    payload = verify_jwt(request)
+    if not payload:
+        return ERROR_401, 401
+    
+    #get requestor
+    query = client.query(kind="users")
+    query.add_filter('sub', '=', payload["sub"])
+    requestor = list(query.fetch())[0]
+
+    # check if the valid user is making the request
+    if user_id != requestor.key.id:
+        return ERROR_403, 403
+
+    file_name = str(user_id) + ".png"
+    
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(AVATAR_BUCKET)
+
+    file_exists = storage.Blob(bucket=bucket, name=file_name).exists(storage_client)
+    if not file_exists:
+        return ERROR_404, 404
+    # Create a blob with the given file name
+    blob = bucket.blob(file_name)
+    # Create a file object in memory using Python io package
+    file_obj = io.BytesIO()
+    # Download the file from Cloud Storage to the file_obj variable
+    blob.download_to_file(file_obj)
+    # Position the file_obj to its beginning
+    file_obj.seek(0)
+
+
+    # Send the object as a file in the response with the correct MIME type and file name
+    return send_file(file_obj, mimetype='image/x-png', download_name=file_name)
 
     
 
