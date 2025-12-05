@@ -269,18 +269,13 @@ def get_user(user_id):
     file_name = str(user_id) + ".png"
     storage_client = storage.Client()
     bucket = storage_client.get_bucket(AVATAR_BUCKET)
-    # Create a blob with the given file name
-    blob = bucket.blob(file_name)
-    # Create a file object in memory using Python io package
-    file_obj = io.BytesIO()
-    # Download the file from Cloud Storage to the file_obj variable
-    blob.download_to_file(file_obj)
-    # Position the file_obj to its beginning
-    file_obj.seek(0)
 
-    if file_obj:
+    #check if the file exists in GC storage
+    file_exists = storage.Blob(bucket=bucket, name=file_name).exists(storage_client)
+
+    if file_exists:
         user['avatar_url'] = 'https://' + request.host + '/' + 'users' + '/' + str(user_id) + '/' + 'avatar'
-    
+
     return user
 
 
@@ -338,6 +333,7 @@ def get_avatar(user_id):
     storage_client = storage.Client()
     bucket = storage_client.get_bucket(AVATAR_BUCKET)
 
+    #check if the file exists in GC storage
     file_exists = storage.Blob(bucket=bucket, name=file_name).exists(storage_client)
     if not file_exists:
         return ERROR_404, 404
@@ -355,8 +351,34 @@ def get_avatar(user_id):
     return send_file(file_obj, mimetype='image/x-png', download_name=file_name)
 
     
+@app.route('/users/<int:user_id>/avatar', methods=['DELETE'])
+def delete_avatar(user_id):
+    payload = verify_jwt(request)
+    if not payload:
+        return ERROR_401, 401
+    
+    # get requestor
+    query = client.query(kind="users")
+    query.add_filter('sub', '=', payload["sub"])
+    requestor = list(query.fetch())[0]
 
+    # check if the valid user is making the request
+    if user_id != requestor.key.id:
+        return ERROR_403, 403
+    file_name = str(user_id) + ".png"
 
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(AVATAR_BUCKET)
+
+    # check if file exists
+    file_exists = storage.Blob(bucket=bucket, name=file_name).exists(storage_client)
+    if not file_exists:
+        return ERROR_404, 404
+    
+    blob = bucket.blob(file_name)
+    # Delete the file from Cloud Storage
+    blob.delete()
+    return '',204
     
 # #  Create a business
 # @app.route('/' + BUSINESSES, methods=['POST'])
