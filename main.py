@@ -481,6 +481,8 @@ def update_course(course_id):
 
     key = client.key('courses', course_id)
     course = client.get(key)
+    if course is None:
+        return ERROR_403, 403
 
     # validate instructor_id
     if 'instructor_id' in request.json:
@@ -537,6 +539,10 @@ def update_enrollment(course_id):
     content = request.json
     course_key = client.key(COURSES, course_id)
     course = client.get(course_key)
+
+    if course is None:
+        return ERROR_403, 403
+
     student_query = client.query(kind='users')
     student_query.add_filter('role', '=', 'student')
     students_list = list(student_query.fetch())
@@ -544,8 +550,6 @@ def update_enrollment(course_id):
     # get student ids to check if the removal or insertion is for a student
     for s in students_list:
         student_ids.append(s.key.id)
-
-    print(student_ids)
 
     if 'enrollment' not in course:
         course['enrollment'] = []
@@ -562,7 +566,6 @@ def update_enrollment(course_id):
             return {"Error": "Enrollment data is invalid"}, 409
         if s not in course["enrollment"]:
             continue
-        print("removing....", s)
         course['enrollment'].remove(s)
         
     client.put(course)
@@ -589,8 +592,11 @@ def get_enrolled_students(course_id):
     course_key = client.key(COURSES, course_id)
     course = client.get(course_key)
 
+    if course is None:
+        return ERROR_403, 403
+
     if requestor['role'] == 'instructor':
-        if course['instructor'] != requestor.key.id:
+        if course['instructor_id'] != requestor.key.id:
             return ERROR_403, 403
     
     if 'enrollment' in course:
